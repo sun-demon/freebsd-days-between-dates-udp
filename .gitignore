@@ -1,0 +1,8 @@
+client
+server
+
+received_files/*
+
+output*
+
+log*
