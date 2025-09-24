@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,13 +15,63 @@
 #define SERVER_HOST "freebsd.ddns.net"
 #define SERVER_PORT 9000
 
+/* check if leap year */
+int is_leap_year(int year) {
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+/* get days number in month */
+int days_in_month(int year, int month) {
+    static const int days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    if (month == 2 && is_leap_year(year)) {
+        return 29;
+    }
+    return days[month - 1];
+}
+
+/* check data correct */
+int is_valid_date(int year, int month, int day) {
+    /* check year - from 1 to 9999 */
+    if (year < 1 || year > 9999) {
+        return 0;
+    }
+    
+    /* check months */
+    if (month < 1 || month > 12) {
+        return 0;
+    }
+    
+    /* check days */
+    if (day < 1 || day > days_in_month(year, month)) {
+        return 0;
+    }
+    
+    return 1;
+}
+
 /* parse date in YYYY-MM-DD, return 0 on success */
 int parse_date(const char *s, int *y, int *m, int *d) {
     if (!s) return -1;
-    int yy=0, mm=0, dd=0;
+    
+    /* check string length */
+    if (strlen(s) < 10) return -1;
+    
+    /* check format (deffises must be contains in right positions) */
+    if (s[4] != '-' || s[7] != '-') return -1;
+    
+    /* check, that all characters without "-" are digits */
+    for (int i = 0; i < 10; i++) {
+        if (i != 4 && i != 7) {
+            if (s[i] < '0' || s[i] > '9') return -1;
+        }
+    }
+    
+    int yy = 0, mm = 0, dd = 0;
     if (sscanf(s, "%d-%d-%d", &yy, &mm, &dd) != 3) return -1;
-    if (mm < 1 || mm > 12) return -1;
-    if (dd < 1 || dd > 31) return -1;
+    
+    /* check data correction */
+    if (!is_valid_date(yy, mm, dd)) return -1;
+    
     *y = yy; *m = mm; *d = dd;
     return 0;
 }
@@ -54,15 +103,28 @@ int read_two_dates_from_file(const char *filename, char *d1, size_t l1, char *d2
         char *p = line;
         while (*p && (*p==' '||*p=='\t' || *p=='\r' || *p=='\n')) p++;
         if (*p==0) continue;
+        
         /* remove trailing whitespace */
         char *end = p + strlen(p) - 1;
-        while (end >= p && (*end==' '||*end=='\t' || *end=='\r' || *end=='\n')) { *end = '\0'; end--; }
-        if (found==0) strncpy(d1, p, l1-1), d1[l1-1]='\0';
-        else strncpy(d2, p, l2-1), d2[l2-1]='\0';
+        while (end >= p && (*end==' '||*end=='\t' || *end=='\r' || *end=='\n')) { 
+            *end = '\0'; 
+            end--; 
+        }
+        
+        /* check string length (must be lower 10 symbols for YYYY-MM-DD) */
+        if (strlen(p) < 10) continue;
+        
+        if (found == 0) {
+            strncpy(d1, p, l1-1);
+            d1[l1-1] = '\0';
+        } else {
+            strncpy(d2, p, l2-1);
+            d2[l2-1] = '\0';
+        }
         found++;
     }
     fclose(f);
-    return (found==2)?0:-2;
+    return (found == 2) ? 0 : -2;
 }
 
 int send_file_over_udp(const char *local_filename) {
@@ -103,7 +165,7 @@ int send_file_over_udp(const char *local_filename) {
     freeaddrinfo(res);
     close(sock);
     free(buf);
-    return (sent==sz)?0: -8;
+    return (sent == sz) ? 0 : -8;
 }
 
 int main(int argc, char **argv) {
@@ -115,25 +177,53 @@ int main(int argc, char **argv) {
     while (1) {
         print_menu();
         int choice = 0;
-        if (scanf("%d%*c", &choice) != 1) break;
+        if (scanf("%d%*c", &choice) != 1) {
+            /* Clear buffer output on exception */
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF);
+            printf("Invalid input. Please enter a number.\n");
+            continue;
+        }
+        
         if (choice == 3) break;
+        
         char d1[64] = {0}, d2[64] = {0};
         if (choice == 1) {
-            printf("Enter date 1 (YYYY-MM-DD): "); if (!fgets(d1, sizeof d1, stdin)) break; d1[strcspn(d1, "\r\n")] = '\0';
-            printf("Enter date 2 (YYYY-MM-DD): "); if (!fgets(d2, sizeof d2, stdin)) break; d2[strcspn(d2, "\r\n")] = '\0';
+            printf("Enter date 1 (YYYY-MM-DD): "); 
+            if (!fgets(d1, sizeof d1, stdin)) break; 
+            d1[strcspn(d1, "\r\n")] = '\0';
+            
+            printf("Enter date 2 (YYYY-MM-DD): "); 
+            if (!fgets(d2, sizeof d2, stdin)) break; 
+            d2[strcspn(d2, "\r\n")] = '\0';
         } else if (choice == 2) {
             char fname[256];
-            printf("Enter input filename: "); if (!fgets(fname, sizeof fname, stdin)) break; fname[strcspn(fname, "\r\n")] = '\0';
-            if (read_two_dates_from_file(fname, d1, sizeof d1, d2, sizeof d2) != 0) { fprintf(stderr, "Failed to read two dates from file\n"); continue; }
+            printf("Enter input filename: "); 
+            if (!fgets(fname, sizeof fname, stdin)) break; 
+            fname[strcspn(fname, "\r\n")] = '\0';
+            
+            if (read_two_dates_from_file(fname, d1, sizeof d1, d2, sizeof d2) != 0) { 
+                fprintf(stderr, "Failed to read two valid dates from file\n"); 
+                continue; 
+            }
             printf("Read dates: %s and %s\n", d1, d2);
         } else {
-            printf("Unknown choice\n"); continue;
+            printf("Unknown choice. Please enter 1, 2 or 3.\n"); 
+            continue;
         }
 
-        int y1,m1,day1,y2,m2,day2;
-        if (parse_date(d1,&y1,&m1,&day1) != 0 || parse_date(d2,&y2,&m2,&day2) != 0) { fprintf(stderr, "Invalid date format. Use YYYY-MM-DD\n"); continue; }
-        int64_t j1 = date_to_jdn(y1,m1,day1);
-        int64_t j2 = date_to_jdn(y2,m2,day2);
+        int y1, m1, day1, y2, m2, day2;
+        if (parse_date(d1, &y1, &m1, &day1) != 0) {
+            fprintf(stderr, "Invalid date 1: %s. Use YYYY-MM-DD format with valid date\n", d1);
+            continue;
+        }
+        if (parse_date(d2, &y2, &m2, &day2) != 0) {
+            fprintf(stderr, "Invalid date 2: %s. Use YYYY-MM-DD format with valid date\n", d2);
+            continue;
+        }
+        
+        int64_t j1 = date_to_jdn(y1, m1, day1);
+        int64_t j2 = date_to_jdn(y2, m2, day2);
         int64_t diff = j2 - j1;
         if (diff < 0) diff = -diff;
 
@@ -163,9 +253,3 @@ int main(int argc, char **argv) {
     puts("Client exiting.");
     return 0;
 }
-
-/* sample_input.txt  */
-/*
-2023-01-01
-2025-09-15
-*/
